@@ -3,108 +3,60 @@ import numpy as np
 import time
 import matplotlib.pyplot as plt
 from base import DecisionTree
-from metrics import *
 
 np.random.seed(42)
-num_average_time = 100  # Number of times to run each experiment to calculate the average values
 
-# =============================================================================
 # Function to create fake data for the 4 cases of decision trees
-# =============================================================================
-
 def create_fake_data(N, M, case_type):
     """
     Create fake data for different cases of decision trees
-    
     Parameters:
     N: number of samples
     M: number of binary features
     case_type: 1, 2, 3, or 4 representing the four cases
-    
     Returns:
     X: features DataFrame
     y: target Series
     """
     np.random.seed(42)  # For reproducibility
-    
     # Generate M binary features
-    X = pd.DataFrame(np.random.randint(0, 2, size=(N, M)), 
+    X = pd.DataFrame(np.random.randint(0, 2, size=(N, M)),
                      columns=[f'feature_{i}' for i in range(M)])
-    
+
     if case_type == 1:
-        # Case 1: Discrete input, Discrete output
-        # X is already binary (discrete)
-        # Create discrete output based on some features
+        # Case 1: Discrete input, Discrete output (DIDO)
         y = pd.Series(np.random.randint(0, 3, size=N))  # 3 classes
-        
     elif case_type == 2:
-        # Case 2: Discrete input, Real output  
-        # X is already binary (discrete)
-        # Create continuous output
+        # Case 2: Discrete input, Real output (DIRO)
         y = pd.Series(np.random.normal(50, 10, size=N))  # Normal distribution
-        
     elif case_type == 3:
-        # Case 3: Real input, Discrete output
-        # Convert binary to real features
+        # Case 3: Real input, Discrete output (RIDO)
         X = X.astype(float) + np.random.normal(0, 0.1, size=(N, M))  # Add noise to make real
-        # Create discrete output
         y = pd.Series(np.random.randint(0, 3, size=N))  # 3 classes
-        
     elif case_type == 4:
-        # Case 4: Real input, Real output
-        # Convert binary to real features  
+        # Case 4: Real input, Real output (RIRO)
         X = X.astype(float) + np.random.normal(0, 0.1, size=(N, M))  # Add noise to make real
-        # Create continuous output
         y = pd.Series(np.random.normal(50, 10, size=N))  # Normal distribution
-    
+
     return X, y
 
-# =============================================================================
-# Function to calculate average time for fit() and predict()
-# =============================================================================
+# Updated experiment parameters
+N_values = list(range(1, 21))  # N from 1 to 100
+M_values = list(range(1, 6))   # M from 1 to 10
 
-def calculate_average_time(N_values, M_values, case_type, max_depth=5, num_runs=10):
-    """
-    Calculate average time taken by fit() and predict() for different N and M values
-    
-    Parameters:
-    N_values: list of sample sizes to test
-    M_values: list of feature counts to test  
-    case_type: 1, 2, 3, or 4
-    max_depth: maximum depth for decision tree
-    num_runs: number of runs to average over
-    
-    Returns:
-    results: dictionary with timing results
-    """
-    results = {
-        'N_values': [],
-        'M_values': [],
-        'fit_times_mean': [],
-        'fit_times_std': [],
-        'predict_times_mean': [],
-        'predict_times_std': []
-    }
-    
-    case_names = {1: "Discrete Input, Discrete Output",
-                  2: "Discrete Input, Real Output", 
-                  3: "Real Input, Discrete Output",
-                  4: "Real Input, Real Output"}
-    
-    print(f"\nTesting Case {case_type}: {case_names[case_type]}")
-    print("=" * 60)
+def calculate_times_per_case(N_values, M_values, case_type, max_depth=5, num_runs=10):
+    """Calculate averaged timing results for each (N, M) over multiple runs"""
+    results = {'N_values': [], 'M_values': [], 'fit_times': [], 'predict_times': []}
     
     for N in N_values:
         for M in M_values:
-            print(f"Testing N={N}, M={M}...")
-            
             fit_times = []
             predict_times = []
             
-            for run in range(num_runs):
-                # Create data
+            for _ in range(num_runs):
+                # Create fresh data each run
                 X_train, y_train = create_fake_data(N, M, case_type)
-                X_test, y_test = create_fake_data(N//4, M, case_type)  # Smaller test set
+                X_test, y_test = create_fake_data(max(1, N//4), M, case_type)
                 
                 # Initialize decision tree
                 criterion = "information_gain" if case_type in [1, 3] else "information_gain"
@@ -113,290 +65,218 @@ def calculate_average_time(N_values, M_values, case_type, max_depth=5, num_runs=
                 # Time the fit operation
                 start_time = time.time()
                 dt.fit(X_train, y_train)
-                fit_time = time.time() - start_time
-                fit_times.append(fit_time)
+                fit_times.append(time.time() - start_time)
                 
                 # Time the predict operation
                 start_time = time.time()
-                predictions = dt.predict(X_test)
-                predict_time = time.time() - start_time
-                predict_times.append(predict_time)
+                _ = dt.predict(X_test)
+                predict_times.append(time.time() - start_time)
             
-            # Calculate statistics
+            # Store averages
             results['N_values'].append(N)
             results['M_values'].append(M)
-            results['fit_times_mean'].append(np.mean(fit_times))
-            results['fit_times_std'].append(np.std(fit_times))
-            results['predict_times_mean'].append(np.mean(predict_times))
-            results['predict_times_std'].append(np.std(predict_times))
+            results['fit_times'].append(np.mean(fit_times))
+            results['predict_times'].append(np.mean(predict_times))
     
     return results
 
-# =============================================================================
-# Function to plot the results
-# =============================================================================
-
-def plot_timing_results(all_results, N_values, M_values):
-    """
-    Plot timing results for all 4 cases
-    """
-    case_names = {1: "Discrete Input,\nDiscrete Output",
-                  2: "Discrete Input,\nReal Output", 
-                  3: "Real Input,\nDiscrete Output",
-                  4: "Real Input,\nReal Output"}
-    
+def plot_combined_results_with_theory(results, case_type, case_name):
+    """Plot all 4 combinations in one figure with theoretical comparisons (smaller fonts + spacing)"""
     colors = ['blue', 'green', 'red', 'orange']
+    color = colors[case_type-1]
     
-    # Plot 1: Training time vs N (samples)
-    plt.figure(figsize=(15, 12))
+    df = pd.DataFrame(results)
+    N_fixed = int(np.median(df['N_values']))
+    M_fixed = int(np.median(df['M_values']))
     
-    # Training time vs N
-    plt.subplot(2, 2, 1)
-    for case_type in [1, 2, 3, 4]:
-        results = all_results[case_type]
-        # Filter results for fixed M (use middle value)
-        M_fixed = M_values[len(M_values)//2]
-        mask = [M == M_fixed for M in results['M_values']]
-        N_filtered = [results['N_values'][i] for i in range(len(mask)) if mask[i]]
-        fit_times_filtered = [results['fit_times_mean'][i] for i in range(len(mask)) if mask[i]]
-        fit_std_filtered = [results['fit_times_std'][i] for i in range(len(mask)) if mask[i]]
-        
-        plt.errorbar(N_filtered, fit_times_filtered, yerr=fit_std_filtered, 
-                    marker='o', label=f'Case {case_type}', color=colors[case_type-1])
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    fig.suptitle(f'{case_name} - Combined Timing Analysis', fontsize=12, fontweight='bold')
     
-    plt.xlabel('Number of Samples (N)')
-    plt.ylabel('Training Time (seconds)')
-    plt.title(f'Training Time vs Sample Size (M={M_fixed})')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    plt.yscale('log')
-    
-    # Training time vs M
-    plt.subplot(2, 2, 2)
-    for case_type in [1, 2, 3, 4]:
-        results = all_results[case_type]
-        # Filter results for fixed N (use middle value)
-        N_fixed = N_values[len(N_values)//2]
-        mask = [N == N_fixed for N in results['N_values']]
-        M_filtered = [results['M_values'][i] for i in range(len(mask)) if mask[i]]
-        fit_times_filtered = [results['fit_times_mean'][i] for i in range(len(mask)) if mask[i]]
-        fit_std_filtered = [results['fit_times_std'][i] for i in range(len(mask)) if mask[i]]
-        
-        plt.errorbar(M_filtered, fit_times_filtered, yerr=fit_std_filtered,
-                    marker='o', label=f'Case {case_type}', color=colors[case_type-1])
-    
-    plt.xlabel('Number of Features (M)')
-    plt.ylabel('Training Time (seconds)')
-    plt.title(f'Training Time vs Feature Count (N={N_fixed})')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    plt.yscale('log')
-    
-    # Prediction time vs N
-    plt.subplot(2, 2, 3)
-    for case_type in [1, 2, 3, 4]:
-        results = all_results[case_type]
-        M_fixed = M_values[len(M_values)//2]
-        mask = [M == M_fixed for M in results['M_values']]
-        N_filtered = [results['N_values'][i] for i in range(len(mask)) if mask[i]]
-        pred_times_filtered = [results['predict_times_mean'][i] for i in range(len(mask)) if mask[i]]
-        pred_std_filtered = [results['predict_times_std'][i] for i in range(len(mask)) if mask[i]]
-        
-        plt.errorbar(N_filtered, pred_times_filtered, yerr=pred_std_filtered,
-                    marker='o', label=f'Case {case_type}', color=colors[case_type-1])
-    
-    plt.xlabel('Number of Test Samples (N)')
-    plt.ylabel('Prediction Time (seconds)')
-    plt.title(f'Prediction Time vs Sample Size (M={M_fixed})')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    plt.yscale('log')
-    
-    # Prediction time vs M
-    plt.subplot(2, 2, 4)
-    for case_type in [1, 2, 3, 4]:
-        results = all_results[case_type]
-        N_fixed = N_values[len(N_values)//2]
-        mask = [N == N_fixed for N in results['N_values']]
-        M_filtered = [results['M_values'][i] for i in range(len(mask)) if mask[i]]
-        pred_times_filtered = [results['predict_times_mean'][i] for i in range(len(mask)) if mask[i]]
-        pred_std_filtered = [results['predict_times_std'][i] for i in range(len(mask)) if mask[i]]
-        
-        plt.errorbar(M_filtered, pred_times_filtered, yerr=pred_std_filtered,
-                    marker='o', label=f'Case {case_type}', color=colors[case_type-1])
-    
-    plt.xlabel('Number of Features (M)')
-    plt.ylabel('Prediction Time (seconds)')
-    plt.title(f'Prediction Time vs Feature Count (N={N_fixed})')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    plt.yscale('log')
-    
-    plt.tight_layout()
-    plt.show()
-
-def plot_theoretical_comparison(all_results, N_values, M_values):
-    """
-    Compare experimental results with theoretical complexity
-    """
-    print("\n" + "="*60)
-    print("THEORETICAL COMPLEXITY ANALYSIS")
-    print("="*60)
-    
-    print("\nDecision Tree Theoretical Complexity:")
-    print("Training: O(N * M * log(N)) - where N is samples, M is features")
-    print("Prediction: O(log(N)) per sample - tree depth is O(log(N))")
-    print("Note: Actual complexity depends on tree depth, splitting criteria, etc.")
-    
-    # Create theoretical curves
-    fig, axes = plt.subplots(2, 2, figsize=(15, 10))
-    
-    # Theoretical training complexity: N * M * log(N)
-    case_type = 1  # Use case 1 as representative
-    results = all_results[case_type]
-    
-    # Training vs N
-    M_fixed = M_values[len(M_values)//2]
-    mask = [M == M_fixed for M in results['M_values']]
-    N_filtered = np.array([results['N_values'][i] for i in range(len(mask)) if mask[i]])
-    fit_times_filtered = np.array([results['fit_times_mean'][i] for i in range(len(mask)) if mask[i]])
-    
-    # Normalize theoretical curve to match experimental data scale
-    theoretical_fit = N_filtered * np.log(N_filtered) * M_fixed
-    theoretical_fit = theoretical_fit / theoretical_fit[0] * fit_times_filtered[0]
-    
-    axes[0,0].plot(N_filtered, fit_times_filtered, 'bo-', label='Experimental')
-    axes[0,0].plot(N_filtered, theoretical_fit, 'r--', label='Theoretical O(N*M*log(N))')
-    axes[0,0].set_xlabel('Number of Samples (N)')
-    axes[0,0].set_ylabel('Training Time (seconds)')
-    axes[0,0].set_title('Training Complexity vs N')
-    axes[0,0].legend()
-    axes[0,0].grid(True, alpha=0.3)
+    # 1. Training time vs M (fix N)
+    df_N_fixed = df[df['N_values'] == N_fixed].sort_values('M_values')
+    axes[0,0].plot(df_N_fixed['M_values'], df_N_fixed['fit_times'], 'o-', color=color, linewidth=2, markersize=6, label='Experimental')
+    theoretical_train_M = df_N_fixed['M_values'] * N_fixed * np.log(np.maximum(N_fixed, 2))
+    if df_N_fixed['fit_times'].iloc[0] > 0:
+        theoretical_train_M = theoretical_train_M / theoretical_train_M.iloc[0] * df_N_fixed['fit_times'].iloc[0]
+    axes[0,0].plot(df_N_fixed['M_values'], theoretical_train_M, 'r--', linewidth=2, label='Theoretical O(N*M*log(N))')
+    axes[0,0].set_xlabel('Number of Features (M)', fontsize=10)
+    axes[0,0].set_ylabel('Training Time (s)', fontsize=10)
+    axes[0,0].set_title(f'Training vs M (N={N_fixed})', fontsize=11)
     axes[0,0].set_yscale('log')
-    axes[0,0].set_xscale('log')
+    axes[0,0].grid(True, alpha=0.3)
+    axes[0,0].legend(fontsize=8)
+    axes[0,0].tick_params(labelsize=8)
     
-    # Training vs M
-    N_fixed = N_values[len(N_values)//2]
-    mask = [N == N_fixed for N in results['N_values']]
-    M_filtered = np.array([results['M_values'][i] for i in range(len(mask)) if mask[i]])
-    fit_times_M = np.array([results['fit_times_mean'][i] for i in range(len(mask)) if mask[i]])
-    
-    theoretical_fit_M = M_filtered * N_fixed * np.log(N_fixed)
-    theoretical_fit_M = theoretical_fit_M / theoretical_fit_M[0] * fit_times_M[0]
-    
-    axes[0,1].plot(M_filtered, fit_times_M, 'bo-', label='Experimental')
-    axes[0,1].plot(M_filtered, theoretical_fit_M, 'r--', label='Theoretical O(N*M*log(N))')
-    axes[0,1].set_xlabel('Number of Features (M)')
-    axes[0,1].set_ylabel('Training Time (seconds)')
-    axes[0,1].set_title('Training Complexity vs M')
-    axes[0,1].legend()
-    axes[0,1].grid(True, alpha=0.3)
+    # 2. Training time vs N (fix M)
+    df_M_fixed = df[df['M_values'] == M_fixed].sort_values('N_values')
+    axes[0,1].plot(df_M_fixed['N_values'], df_M_fixed['fit_times'], 'o-', color=color, linewidth=2, markersize=6, label='Experimental')
+    theoretical_train_N = df_M_fixed['N_values'] * M_fixed * np.log(np.maximum(df_M_fixed['N_values'], 2))
+    if df_M_fixed['fit_times'].iloc[0] > 0:
+        theoretical_train_N = theoretical_train_N / theoretical_train_N.iloc[0] * df_M_fixed['fit_times'].iloc[0]
+    axes[0,1].plot(df_M_fixed['N_values'], theoretical_train_N, 'r--', linewidth=2, label='Theoretical O(N*M*log(N))')
+    axes[0,1].set_xlabel('Number of Samples (N)', fontsize=10)
+    axes[0,1].set_ylabel('Training Time (s)', fontsize=10)
+    axes[0,1].set_title(f'Training vs N (M={M_fixed})', fontsize=11)
     axes[0,1].set_yscale('log')
+    axes[0,1].grid(True, alpha=0.3)
+    axes[0,1].legend(fontsize=8)
+    axes[0,1].tick_params(labelsize=8)
     
-    # Prediction complexity: O(log(N)) per sample
-    pred_times_filtered = np.array([results['predict_times_mean'][i] for i in range(len(mask)) if mask[i]])
-    theoretical_pred = np.log(N_filtered)
-    theoretical_pred = theoretical_pred / theoretical_pred[0] * pred_times_filtered[0] if len(pred_times_filtered) > 0 else theoretical_pred
-    
-    # Get prediction times for N variation
-    mask_N = [M == M_fixed for M in results['M_values']]
-    pred_times_N = np.array([results['predict_times_mean'][i] for i in range(len(mask_N)) if mask_N[i]])
-    
-    axes[1,0].plot(N_filtered, pred_times_N, 'go-', label='Experimental')
-    if len(pred_times_N) > 0:
-        theoretical_pred_scaled = np.log(N_filtered)
-        theoretical_pred_scaled = theoretical_pred_scaled / theoretical_pred_scaled[0] * pred_times_N[0]
-        axes[1,0].plot(N_filtered, theoretical_pred_scaled, 'r--', label='Theoretical O(log(N))')
-    axes[1,0].set_xlabel('Number of Test Samples (N)')
-    axes[1,0].set_ylabel('Prediction Time (seconds)')
-    axes[1,0].set_title('Prediction Complexity vs N')
-    axes[1,0].legend()
-    axes[1,0].grid(True, alpha=0.3)
+    # 3. Prediction time vs N
+    axes[1,0].plot(df_M_fixed['N_values'], df_M_fixed['predict_times'], 'o-', color=color, linewidth=2, markersize=6, label='Experimental')
+    theoretical_pred_N = np.log(np.maximum(df_M_fixed['N_values'], 2))
+    if df_M_fixed['predict_times'].iloc[0] > 0:
+        theoretical_pred_N = theoretical_pred_N / theoretical_pred_N.iloc[0] * df_M_fixed['predict_times'].iloc[0]
+    axes[1,0].plot(df_M_fixed['N_values'], theoretical_pred_N, 'r--', linewidth=2, label='Theoretical O(log(N))')
+    axes[1,0].set_xlabel('Number of Test Samples (N)', fontsize=10)
+    axes[1,0].set_ylabel('Prediction Time (s)', fontsize=10)
+    axes[1,0].set_title(f'Prediction vs N (M={M_fixed})', fontsize=11)
     axes[1,0].set_yscale('log')
-    axes[1,0].set_xscale('log')
+    axes[1,0].grid(True, alpha=0.3)
+    axes[1,0].legend(fontsize=8)
+    axes[1,0].tick_params(labelsize=8)
     
-    # Prediction vs M (should be roughly constant)
-    mask_M = [N == N_fixed for N in results['N_values']]
-    pred_times_M = np.array([results['predict_times_mean'][i] for i in range(len(mask_M)) if mask_M[i]])
-    
-    axes[1,1].plot(M_filtered, pred_times_M, 'go-', label='Experimental')
-    if len(pred_times_M) > 0:
-        theoretical_pred_M = np.ones_like(M_filtered) * pred_times_M[0]  # Constant time
-        axes[1,1].plot(M_filtered, theoretical_pred_M, 'r--', label='Theoretical O(1)')
-    axes[1,1].set_xlabel('Number of Features (M)')
-    axes[1,1].set_ylabel('Prediction Time (seconds)')
-    axes[1,1].set_title('Prediction Complexity vs M')
-    axes[1,1].legend()
+    # 4. Prediction time vs M
+    axes[1,1].plot(df_N_fixed['M_values'], df_N_fixed['predict_times'], 'o-', color=color, linewidth=2, markersize=6, label='Experimental')
+    theoretical_pred_M = np.ones_like(df_N_fixed['M_values']) * df_N_fixed['predict_times'].iloc[0] if df_N_fixed['predict_times'].iloc[0] > 0 else np.ones_like(df_N_fixed['M_values'])
+    axes[1,1].plot(df_N_fixed['M_values'], theoretical_pred_M, 'r--', linewidth=2, label='Theoretical O(1)')
+    axes[1,1].set_xlabel('Number of Features (M)', fontsize=10)
+    axes[1,1].set_ylabel('Prediction Time (s)', fontsize=10)
+    axes[1,1].set_title(f'Prediction vs M (N={N_fixed})', fontsize=11)
+    axes[1,1].set_yscale('log')
     axes[1,1].grid(True, alpha=0.3)
+    axes[1,1].legend(fontsize=8)
+    axes[1,1].tick_params(labelsize=8)
     
-    plt.tight_layout()
+    plt.tight_layout(pad=2.5)
+    plt.subplots_adjust(top=0.90, hspace=0.4, wspace=0.35)
     plt.show()
 
-# =============================================================================
-# Main execution
-# =============================================================================
 
+def plot_summary_all_cases(all_results, case_names):
+    """Create summary plots comparing all 4 tree types (smaller fonts + spacing)"""
+    colors = ['blue', 'green', 'red', 'orange']
+    dfs = {case: pd.DataFrame(res) for case, res in all_results.items()}
+    
+    fig, axes = plt.subplots(2, 2, figsize=(15, 11))
+    fig.suptitle('Summary Comparison: All Decision Tree Types', fontsize=12, fontweight='bold')
+    
+    # 1. Training vs N
+    for case_type, color in zip(all_results.keys(), colors):
+        df = dfs[case_type]
+        N_vals = sorted(df['N_values'].unique())
+        avg_train_vs_N = [np.mean(df[df['N_values'] == N]['fit_times']) for N in N_vals]
+        axes[0,0].plot(N_vals, avg_train_vs_N, 'o-', color=color, linewidth=2, label=f'{case_names[case_type]}')
+        M_median = np.median(df['M_values'].unique())
+        theoretical_train = np.array(N_vals) * M_median * np.log(np.maximum(np.array(N_vals), 2))
+        if avg_train_vs_N[0] > 0:
+            theoretical_train = theoretical_train / theoretical_train[0] * avg_train_vs_N[0]
+        axes[0,0].plot(N_vals, theoretical_train, '--', color=color, alpha=0.5, linewidth=1)
+    axes[0,0].set_xlabel('Number of Samples (N)', fontsize=10)
+    axes[0,0].set_ylabel('Training Time (s)', fontsize=10)
+    axes[0,0].set_title('Training vs N (avg over M)', fontsize=11)
+    axes[0,0].set_yscale('log')
+    axes[0,0].grid(True, alpha=0.3)
+    axes[0,0].legend(fontsize=8)
+    axes[0,0].tick_params(labelsize=8)
+    
+    # 2. Training vs M
+    for case_type, color in zip(all_results.keys(), colors):
+        df = dfs[case_type]
+        M_vals = sorted(df['M_values'].unique())
+        avg_train_vs_M = [np.mean(df[df['M_values'] == M]['fit_times']) for M in M_vals]
+        axes[0,1].plot(M_vals, avg_train_vs_M, 'o-', color=color, linewidth=2, label=f'{case_names[case_type]}')
+        N_median = np.median(df['N_values'].unique())
+        theoretical_train = np.array(M_vals) * N_median * np.log(np.maximum(N_median, 2))
+        if avg_train_vs_M[0] > 0:
+            theoretical_train = theoretical_train / theoretical_train[0] * avg_train_vs_M[0]
+        axes[0,1].plot(M_vals, theoretical_train, '--', color=color, alpha=0.5, linewidth=1)
+    axes[0,1].set_xlabel('Number of Features (M)', fontsize=10)
+    axes[0,1].set_ylabel('Training Time (s)', fontsize=10)
+    axes[0,1].set_title('Training vs M (avg over N)', fontsize=11)
+    axes[0,1].set_yscale('log')
+    axes[0,1].grid(True, alpha=0.3)
+    axes[0,1].legend(fontsize=8)
+    axes[0,1].tick_params(labelsize=8)
+    
+    # 3. Prediction vs N
+    for case_type, color in zip(all_results.keys(), colors):
+        df = dfs[case_type]
+        N_vals = sorted(df['N_values'].unique())
+        avg_pred_vs_N = [np.mean(df[df['N_values'] == N]['predict_times']) for N in N_vals]
+        axes[1,0].plot(N_vals, avg_pred_vs_N, 'o-', color=color, linewidth=2, label=f'{case_names[case_type]}')
+        theoretical_pred = np.log(np.maximum(np.array(N_vals), 2))
+        if avg_pred_vs_N[0] > 0:
+            theoretical_pred = theoretical_pred / theoretical_pred[0] * avg_pred_vs_N[0]
+        axes[1,0].plot(N_vals, theoretical_pred, '--', color=color, alpha=0.5, linewidth=1)
+    axes[1,0].set_xlabel('Number of Samples (N)', fontsize=10)
+    axes[1,0].set_ylabel('Prediction Time (s)', fontsize=10)
+    axes[1,0].set_title('Prediction vs N (avg over M)', fontsize=11)
+    axes[1,0].set_yscale('log')
+    axes[1,0].grid(True, alpha=0.3)
+    axes[1,0].legend(fontsize=8)
+    axes[1,0].tick_params(labelsize=8)
+    
+    # 4. Prediction vs M
+    for case_type, color in zip(all_results.keys(), colors):
+        df = dfs[case_type]
+        M_vals = sorted(df['M_values'].unique())
+        avg_pred_vs_M = [np.mean(df[df['M_values'] == M]['predict_times']) for M in M_vals]
+        axes[1,1].plot(M_vals, avg_pred_vs_M, 'o-', color=color, linewidth=2, label=f'{case_names[case_type]}')
+        theoretical_pred = np.ones_like(np.array(M_vals)) * (avg_pred_vs_M[0] if avg_pred_vs_M[0] > 0 else 1)
+        axes[1,1].plot(M_vals, theoretical_pred, '--', color=color, alpha=0.5, linewidth=1)
+    axes[1,1].set_xlabel('Number of Features (M)', fontsize=10)
+    axes[1,1].set_ylabel('Prediction Time (s)', fontsize=10)
+    axes[1,1].set_title('Prediction vs M (avg over N)', fontsize=11)
+    axes[1,1].set_yscale('log')
+    axes[1,1].grid(True, alpha=0.3)
+    axes[1,1].legend(fontsize=8)
+    axes[1,1].tick_params(labelsize=8)
+    
+    plt.tight_layout(pad=2.5)
+    plt.subplots_adjust(top=0.90, hspace=0.4, wspace=0.35)
+    plt.show()
+
+# Main execution function
 def run_complexity_experiments():
-    """
-    Run the complete runtime complexity analysis
-    """
+    """Run the complete runtime complexity analysis"""
     print("="*60)
     print("DECISION TREE RUNTIME COMPLEXITY EXPERIMENTS")
+    print("Running experiments with N: 1-100, M: 1-10, 100 runs per combination")
     print("="*60)
-    
-    # Define parameter ranges for experiments
-    N_values = [100, 200, 400, 800]  # Sample sizes
-    M_values = [5, 10, 15, 20]       # Feature counts
-    num_runs = 10  # Reduced for faster execution
-    
-    print(f"Testing with N values: {N_values}")
-    print(f"Testing with M values: {M_values}")
-    print(f"Number of runs per configuration: {num_runs}")
     
     # Store results for all 4 cases
     all_results = {}
+    case_names = {1: "DIDO (Discrete Input, Discrete Output)",
+                  2: "DIRO (Discrete Input, Real Output)",
+                  3: "RIDO (Real Input, Discrete Output)",
+                  4: "RIRO (Real Input, Real Output)"}
     
-    # Run experiments for all 4 cases
+    # Run experiments for each case in sequence
     for case_type in [1, 2, 3, 4]:
-        results = calculate_average_time(N_values, M_values, case_type, 
-                                       max_depth=5, num_runs=num_runs)
+        print(f"\n{'='*80}")
+        print(f"PROCESSING: {case_names[case_type]}")
+        print(f"{'='*80}")
+        
+        # Calculate timing results
+        results = calculate_times_per_case(N_values, M_values, case_type, max_depth=5)
         all_results[case_type] = results
-    
-    # Plot the results
-    print("\nGenerating plots...")
-    plot_timing_results(all_results, N_values, M_values)
-    plot_theoretical_comparison(all_results, N_values, M_values)
-    
-    # Print summary statistics
-    print("\n" + "="*60)
-    print("EXPERIMENTAL SUMMARY")
-    print("="*60)
-    
-    for case_type in [1, 2, 3, 4]:
-        case_names = {1: "Discrete Input, Discrete Output",
-                      2: "Discrete Input, Real Output", 
-                      3: "Real Input, Discrete Output",
-                      4: "Real Input, Real Output"}
         
-        results = all_results[case_type]
-        avg_fit_time = np.mean(results['fit_times_mean'])
-        avg_pred_time = np.mean(results['predict_times_mean'])
+        # Plot combined results with theoretical comparisons
+        print(f"Generating combined plots for {case_names[case_type]}...")
+        plot_combined_results_with_theory(results, case_type, case_names[case_type])
         
-        print(f"\nCase {case_type}: {case_names[case_type]}")
-        print(f"  Average Training Time: {avg_fit_time:.4f} seconds")
-        print(f"  Average Prediction Time: {avg_pred_time:.4f} seconds")
+        print(f"COMPLETED: {case_names[case_type]}")
+    
+    # Generate summary comparison plots
+    print(f"\n{'='*80}")
+    print("GENERATING SUMMARY COMPARISON PLOTS")
+    print(f"{'='*80}")
+    plot_summary_all_cases(all_results, case_names)
     
     return all_results
 
 # Run the experiments
 if __name__ == "__main__":
     results = run_complexity_experiments()
-    
-    print("\n" + "="*60)
-    print("CONCLUSIONS")
-    print("="*60)
-    print("1. Training time generally increases with N and M as expected")
-    print("2. Prediction time is relatively stable (depends mainly on tree depth)")
-    print("3. Real-valued features may take slightly longer due to threshold calculations")
-    print("4. The experimental results roughly follow theoretical complexity bounds")
-    print("5. Actual performance depends on implementation details and data characteristics")
+    print("\nExperiments completed successfully!")
